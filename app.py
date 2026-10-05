@@ -12,7 +12,6 @@ ESTAT_APP_ID = os.environ.get("ESTAT_APP_ID", "YOUR_ESTAT_APP_ID")
 ESTAT_URL = "https://api.e-stat.go.jp/rest/3.0/app/getStatsData"
 
 def format_time_label(time_str):
-    # Converts e.g. "2026000808" -> "Aug. 2026"
     if len(time_str) >= 10:
         year = time_str[:4]
         month_code = time_str[6:8]
@@ -42,7 +41,10 @@ def get_japan_labor_data():
         
     root = ET.fromstring(response.content)
     
-    raw_data = []
+    unemployment_raw = []
+    participation_raw = []
+    employment_raw = []
+    
     for elem in root.iter():
         if elem.tag.endswith('VALUE') or elem.tag.endswith('value'):
             time_attr = elem.attrib.get('time', '')
@@ -50,31 +52,29 @@ def get_japan_labor_data():
             cat02 = elem.attrib.get('cat02', '')
             cat03 = elem.attrib.get('cat03', '')
             
-            # Filter for 2026, Tab 02, Unemployment rate (08), Both sexes (0)
-            if time_attr.startswith('2026') and tab == '02' and cat02 == '08' and cat03 == '0':
-                raw_data.append({
+            if time_attr.startswith('2026') and tab == '02' and cat03 == '0':
+                item = {
                     "time": time_attr,
                     "label": format_time_label(time_attr),
                     "value": float(elem.text)
-                })
+                }
+                if cat02 == '08':
+                    unemployment_raw.append(item)
+                elif cat02 == '01':
+                    participation_raw.append(item)
+                elif cat02 == '13':
+                    employment_raw.append(item)
                 
-    # Sort chronologically
-    raw_data = sorted(raw_data, key=lambda x: x["time"])
-    
-    # Calculate month-over-month change for the bar chart dataset
-    japan_series = []
-    for i, item in enumerate(raw_data):
-        mom_change = 0.0
-        if i > 0:
-            mom_change = round(item["value"] - raw_data[i-1]["value"], 2)
-            
-        japan_series.append({
-            "label": item["label"],
-            "index": item["value"],       # Unemployment Rate (%)
-            "yoy": mom_change             # MoM Change points
-        })
+    # Sort each series chronologically
+    unemployment_series = [{"label": x["label"], "index": x["value"]} for x in sorted(unemployment_raw, key=lambda k: k["time"])]
+    participation_series = [{"label": x["label"], "index": x["value"]} for x in sorted(participation_raw, key=lambda k: k["time"])]
+    employment_series = [{"label": x["label"], "index": x["value"]} for x in sorted(employment_raw, key=lambda k: k["time"])]
 
-    return jsonify({"japan": japan_series})
+    return jsonify({
+        "unemployment": unemployment_series,
+        "participation": participation_series,
+        "employment": employment_series
+    })
 
 @app.route('/')
 def index():
